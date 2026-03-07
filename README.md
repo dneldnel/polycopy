@@ -34,40 +34,60 @@ cd /Volumes/jd/projects/polymarket/polycopy-v2
 npm install
 ```
 
-## Required Exports
+## Environment
+
+The app auto-loads a `.env` file from the project root via `dotenv`. You do not need to `export` every variable manually.
+
+Use [`.env.example`](/Volumes/jd/projects/polymarket/polycopy-v2/.env.example) as the template for your local `.env`. The real `.env` is ignored by git.
+
+Minimum required variables:
 
 ```bash
-export LEADER_WALLET_ADDRESS="0xLEADER_PROXY_OR_WALLET"
-export FOLLOWER_WALLET_ADDRESS="0xYOUR_FOLLOWER_OR_PROXY_WALLET"
-export WALLET_PRIVATE_KEY="0xYOUR_EOA_PRIVATE_KEY"
-
-export SIGNATURE_TYPE="EOA"
-export CLOB_HTTP_URL="https://clob.polymarket.com"
-export CHAIN_ID="137"
+LEADER_WALLET_ADDRESS=0xLEADER_PROXY_WALLET
+FOLLOWER_WALLET_ADDRESS=0xYOUR_FOLLOWER_PROFILE_ADDRESS
+SIMULATION_MODE=true
 ```
 
-If the follower uses a proxy wallet:
+Recommended proxy wallet setup:
 
 ```bash
-export SIGNATURE_TYPE="POLY_GNOSIS_SAFE"
-export PROXY_WALLET_ADDRESS="0xYOUR_PROXY_WALLET"
-```
+LEADER_WALLET_ADDRESS=0xLEADER_PROXY_WALLET
+FOLLOWER_WALLET_ADDRESS=0xYOUR_FOLLOWER_PROFILE_ADDRESS
 
-Optional:
+SIMULATION_MODE=false
 
-```bash
-export POLYCOPY_V2_DB_PATH="$PWD/data/polycopy-v2.sqlite"
-export ORDER_SIZE_MODE="fixed"
-export FIXED_ORDER_SIZE="5"
-export SIZE_MULTIPLIER="1"
-export SIMULATION_MODE="true"
-export POLYCOPY_V2_TUI="true"
+ORDER_SIZE_MODE=fixed
+FIXED_ORDER_SIZE=5
+SIZE_MULTIPLIER=1
+
+WALLET_PRIVATE_KEY=0xYOUR_EOA_PRIVATE_KEY
+SIGNATURE_TYPE=POLY_PROXY
+PROXY_WALLET_ADDRESS=0xYOUR_PROXY_WALLET
+
+CLOB_HTTP_URL=https://clob.polymarket.com
+CHAIN_ID=137
+POLYCOPY_V2_DB_PATH=./data/polycopy-v2.sqlite
+POLYCOPY_V2_TUI=true
 
 # Optional explicit API creds
-# export POLYMARKET_API_KEY="..."
-# export POLYMARKET_API_SECRET="..."
-# export POLYMARKET_API_PASSPHRASE="..."
+# POLYMARKET_API_KEY=...
+# POLYMARKET_API_SECRET=...
+# POLYMARKET_API_PASSPHRASE=...
 ```
+
+Notes:
+
+- `LEADER_WALLET_ADDRESS` should usually be the leader proxy wallet, because the public activity stream is matched on `proxyWallet`
+- `FOLLOWER_WALLET_ADDRESS` is your follower profile / funder wallet
+- `PROXY_WALLET_ADDRESS` is your proxy wallet
+- `WALLET_PRIVATE_KEY` is still your signing EOA private key, not the proxy address
+- `SIGNATURE_TYPE` supports `EOA`, `POLY_PROXY`, and `POLY_GNOSIS_SAFE`
+
+Order sizing modes:
+
+- `ORDER_SIZE_MODE=fixed`: always place `FIXED_ORDER_SIZE`
+- `ORDER_SIZE_MODE=multiplier`: place `leader_size * SIZE_MULTIPLIER`
+- Defaults are `ORDER_SIZE_MODE=fixed` and `FIXED_ORDER_SIZE=5`
 
 ## Database
 
@@ -90,24 +110,22 @@ npm run db:init
 
 ## Run
 
-Dry run first:
+After `npm run db:init`, start with a dry run first:
 
 ```bash
-export SIMULATION_MODE="true"
 npm run dev
 ```
 
 Dry run with console TUI:
 
 ```bash
-export SIMULATION_MODE="true"
 npm run dev:tui
 ```
 
 Live mode:
 
 ```bash
-export SIMULATION_MODE="false"
+# set SIMULATION_MODE=false in .env first
 npm run dev
 ```
 
