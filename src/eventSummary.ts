@@ -51,9 +51,13 @@ export function summarizeEventFields(event: string, fields: Record<string, unkno
     case "app.stopping":
       return summarizePairs(fields, ["signal", "leaderTrades", "followerOrders", "followerFills", "runtimeEvents"]);
     case "websocket.connected":
-      return "leader websocket connected";
-    case "websocket.disconnected":
-      return "leader websocket disconnected";
+      return summarizePairs(fields, ["reconnectAttempt"])
+        ? `leader websocket connected ${summarizePairs(fields, ["reconnectAttempt"])}`
+        : "leader websocket connected";
+    case "websocket.disconnected": {
+      const detail = summarizePairs(fields, ["code", "reason", "source", "reconnectInMs"]);
+      return detail ? `leader websocket disconnected ${detail}` : "leader websocket disconnected";
+    }
     case "user_websocket.connected":
       return "user websocket connected";
     case "user_websocket.disconnected":

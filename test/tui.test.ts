@@ -36,3 +36,15 @@ test("summarizeEventFields falls back for non-tty warning", () => {
     "stdout is not a TTY; falling back to JSON logs"
   );
 });
+
+test("summarizeEventFields includes leader websocket disconnect context", () => {
+  assert.equal(
+    summarizeEventFields("websocket.disconnected", {
+      code: 1006,
+      reason: "heartbeat_timeout",
+      source: "heartbeat_timeout",
+      reconnectInMs: 1000,
+    }),
+    "leader websocket disconnected code=1006 reason=heartbeat_timeout source=heartbeat_timeout reconnectInMs=1000"
+  );
+});

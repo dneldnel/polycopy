@@ -256,14 +256,20 @@ async function main(): Promise<void> {
   const stream = startLeaderStream({
     leaderWallet: config.leaderWallet,
     logger,
-    onConnected: () => {
+    onConnected: (context) => {
       store.insertRuntimeEvent("info", "websocket.connected", {
         leaderWallet: config.leaderWallet,
+        pingIntervalMs: context.pingIntervalMs,
+        reconnectAttempt: context.reconnectAttempt,
       });
     },
-    onDisconnected: () => {
+    onDisconnected: (context) => {
       store.insertRuntimeEvent("warn", "websocket.disconnected", {
         leaderWallet: config.leaderWallet,
+        code: context.code,
+        reason: context.reason,
+        reconnectInMs: context.reconnectInMs,
+        source: context.source,
       });
     },
     onTrade: async (payload) => {
