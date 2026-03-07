@@ -4,14 +4,21 @@ import { startLeaderStream } from "./leaderStream";
 import { createLogger, errorMessage } from "./logger";
 import { normalizeLeaderTradePayload } from "./normalize";
 import { createAuthenticatedClobClient } from "./polymarket";
+import { renderStartupChecks, sleep, validateStartupChecks } from "./preflight";
 import { Store } from "./store";
 import { createRuntimeTui, type RuntimeTui } from "./tui";
 import type { ActivityTradePayload } from "./types";
 import { startUserOrderStream, type UserOrderStreamController } from "./userOrderStream";
 
 let activeTui: RuntimeTui | null = null;
+const STARTUP_PREFLIGHT_DELAY_MS = 5000;
 
 async function main(): Promise<void> {
+  process.stdout.write("[startup preflight] running checks...\n");
+  const startupChecks = await validateStartupChecks(process.env);
+  process.stdout.write(renderStartupChecks(startupChecks, STARTUP_PREFLIGHT_DELAY_MS));
+  await sleep(STARTUP_PREFLIGHT_DELAY_MS);
+
   const config = loadConfig();
   const store = new Store(config.sqlitePath);
   const tui = config.tuiEnabled

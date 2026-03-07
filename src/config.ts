@@ -63,9 +63,10 @@ export function resolveSqlitePath(cwd = process.cwd()): string {
   );
 }
 
-export function loadConfig(): AppConfig {
-  const leaderWalletRaw = asString(process.env.LEADER_WALLET_ADDRESS);
-  const followerWalletRaw = asString(process.env.FOLLOWER_WALLET_ADDRESS);
+export function loadConfigFromEnv(env: NodeJS.ProcessEnv): AppConfig {
+  const leaderWalletRaw = asString(env.LEADER_WALLET_ADDRESS);
+  const followerWalletRaw = asString(env.FOLLOWER_WALLET_ADDRESS);
+  const proxyWalletRaw = asString(env.PROXY_WALLET_ADDRESS);
   if (!leaderWalletRaw) {
     throw new Error("Missing LEADER_WALLET_ADDRESS");
   }
@@ -78,19 +79,23 @@ export function loadConfig(): AppConfig {
   return {
     leaderWallet: normalizeAddress(leaderWalletRaw, "leader wallet"),
     followerWallet: normalizeAddress(followerWalletRaw, "follower wallet"),
-    proxyWalletAddress: asString(process.env.PROXY_WALLET_ADDRESS).toLowerCase(),
-    walletPrivateKey: asString(process.env.WALLET_PRIVATE_KEY),
-    apiKey: asString(process.env.POLYMARKET_API_KEY),
-    apiSecret: asString(process.env.POLYMARKET_API_SECRET),
-    apiPassphrase: asString(process.env.POLYMARKET_API_PASSPHRASE),
+    proxyWalletAddress: proxyWalletRaw ? normalizeAddress(proxyWalletRaw, "proxy wallet") : "",
+    walletPrivateKey: asString(env.WALLET_PRIVATE_KEY),
+    apiKey: asString(env.POLYMARKET_API_KEY),
+    apiSecret: asString(env.POLYMARKET_API_SECRET),
+    apiPassphrase: asString(env.POLYMARKET_API_PASSPHRASE),
     sqlitePath,
-    simulationMode: asBoolean(process.env.SIMULATION_MODE, true),
-    orderSizeMode: normalizeOrderSizeMode(asString(process.env.ORDER_SIZE_MODE) || "fixed"),
-    fixedOrderSize: asNumber(process.env.FIXED_ORDER_SIZE, 5),
-    sizeMultiplier: asNumber(process.env.SIZE_MULTIPLIER, 1),
-    clobHttpUrl: asString(process.env.CLOB_HTTP_URL) || "https://clob.polymarket.com",
-    chainId: asNumber(process.env.CHAIN_ID, 137),
-    signatureType: normalizeSignatureType(asString(process.env.SIGNATURE_TYPE) || "EOA"),
-    tuiEnabled: asBoolean(process.env.POLYCOPY_V2_TUI, false),
+    simulationMode: asBoolean(env.SIMULATION_MODE, true),
+    orderSizeMode: normalizeOrderSizeMode(asString(env.ORDER_SIZE_MODE) || "fixed"),
+    fixedOrderSize: asNumber(env.FIXED_ORDER_SIZE, 5),
+    sizeMultiplier: asNumber(env.SIZE_MULTIPLIER, 1),
+    clobHttpUrl: asString(env.CLOB_HTTP_URL) || "https://clob.polymarket.com",
+    chainId: asNumber(env.CHAIN_ID, 137),
+    signatureType: normalizeSignatureType(asString(env.SIGNATURE_TYPE) || "EOA"),
+    tuiEnabled: asBoolean(env.POLYCOPY_V2_TUI, false),
   };
+}
+
+export function loadConfig(): AppConfig {
+  return loadConfigFromEnv(process.env);
 }
