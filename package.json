@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "dev:tui": "POLYCOPY_V2_TUI=true tsx src/main.ts",
+    "events": "tsx src/showRuntimeEvents.ts",
     "watch:leader": "tsx src/watchLeaderTape.ts",
     "build": "tsc -p tsconfig.json",
     "db:init": "tsx src/initDb.ts",

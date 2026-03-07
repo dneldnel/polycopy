@@ -122,6 +122,18 @@ Dry run with console TUI:
 npm run dev:tui
 ```
 
+Format the latest runtime events from SQLite:
+
+```bash
+npm run events
+```
+
+Follow new runtime events as they are written:
+
+```bash
+npm run events -- --follow
+```
+
 Watch only the latest leader trade heard by the public websocket:
 
 ```bash
@@ -143,7 +155,11 @@ npm run dev
 
 When `POLYCOPY_V2_TUI=true`, the process switches from raw JSON stdout logs to a full-screen terminal dashboard showing websocket status, aggregate counts, recent leader trades, recent follower order activity, recent fills, and recent runtime events. Press `q` or `Ctrl+C` to stop.
 
+The TUI redraw cadence is 2 seconds, so bursty event traffic is batched into a steadier screen refresh.
+
 `npm run watch:leader` is a lighter console watcher. It listens only to the public `activity/trades` websocket and redraws the terminal with the newest leader trade it sees. It does not backfill history.
+
+`npm run events` reads the `runtime_events` table from the configured SQLite database and prints a formatted view of each event. Use `--follow` to tail new rows.
 
 ## Behavior
 
