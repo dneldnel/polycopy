@@ -122,6 +122,18 @@ Dry run with console TUI:
 npm run dev:tui
 ```
 
+Watch only the latest leader trade heard by the public websocket:
+
+```bash
+npm run watch:leader
+```
+
+Optional wallet override:
+
+```bash
+npm run watch:leader -- 0xLEADER_PROXY_WALLET
+```
+
 Live mode:
 
 ```bash
@@ -130,6 +142,8 @@ npm run dev
 ```
 
 When `POLYCOPY_V2_TUI=true`, the process switches from raw JSON stdout logs to a full-screen terminal dashboard showing websocket status, aggregate counts, recent leader trades, recent follower order activity, recent fills, and recent runtime events. Press `q` or `Ctrl+C` to stop.
+
+`npm run watch:leader` is a lighter console watcher. It listens only to the public `activity/trades` websocket and redraws the terminal with the newest leader trade it sees. It does not backfill history.
 
 ## Behavior
 
