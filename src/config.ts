@@ -1,6 +1,6 @@
 import "dotenv/config";
 import * as path from "node:path";
-import type { AppConfig, SignatureTypeName } from "./types";
+import type { AppConfig, OrderSizeModeName, SignatureTypeName } from "./types";
 
 function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.trim() : fallback;
@@ -51,6 +51,11 @@ function normalizeSignatureType(value: string): SignatureTypeName {
   return "EOA";
 }
 
+function normalizeOrderSizeMode(value: string): OrderSizeModeName {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "multiplier" ? "multiplier" : "fixed";
+}
+
 export function resolveSqlitePath(cwd = process.cwd()): string {
   return path.resolve(
     cwd,
@@ -80,9 +85,12 @@ export function loadConfig(): AppConfig {
     apiPassphrase: asString(process.env.POLYMARKET_API_PASSPHRASE),
     sqlitePath,
     simulationMode: asBoolean(process.env.SIMULATION_MODE, true),
+    orderSizeMode: normalizeOrderSizeMode(asString(process.env.ORDER_SIZE_MODE) || "fixed"),
+    fixedOrderSize: asNumber(process.env.FIXED_ORDER_SIZE, 5),
     sizeMultiplier: asNumber(process.env.SIZE_MULTIPLIER, 1),
     clobHttpUrl: asString(process.env.CLOB_HTTP_URL) || "https://clob.polymarket.com",
     chainId: asNumber(process.env.CHAIN_ID, 137),
     signatureType: normalizeSignatureType(asString(process.env.SIGNATURE_TYPE) || "EOA"),
+    tuiEnabled: asBoolean(process.env.POLYCOPY_V2_TUI, false),
   };
 }

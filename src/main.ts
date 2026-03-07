@@ -1,17 +1,40 @@
 import { loadConfig } from "./config";
-import { scaleOrderSize, submitLeaderPriceLimitOrder } from "./executor";
+import { resolveOrderSize, submitLeaderPriceLimitOrder } from "./executor";
 import { startLeaderStream } from "./leaderStream";
 import { createLogger, errorMessage } from "./logger";
 import { normalizeLeaderTradePayload } from "./normalize";
 import { createAuthenticatedClobClient } from "./polymarket";
 import { Store } from "./store";
+import { createRuntimeTui, type RuntimeTui } from "./tui";
 import type { ActivityTradePayload } from "./types";
 import { startUserOrderStream, type UserOrderStreamController } from "./userOrderStream";
 
+let activeTui: RuntimeTui | null = null;
+
 async function main(): Promise<void> {
   const config = loadConfig();
-  const logger = createLogger();
   const store = new Store(config.sqlitePath);
+  const tui = config.tuiEnabled
+    ? createRuntimeTui({
+        config,
+        store,
+        onQuit: () => {
+          process.kill(process.pid, "SIGINT");
+        },
+      })
+    : null;
+  const tuiActive = tui?.start() ?? false;
+  activeTui = tuiActive ? tui : null;
+  const logger = createLogger(
+    tuiActive && tui
+      ? {
+          silent: true,
+          onWrite: (entry) => {
+            tui.record(entry);
+          },
+        }
+      : {}
+  );
   const clobClient = config.simulationMode ? null : await createAuthenticatedClobClient(config);
   const userOrderStream: UserOrderStreamController | null =
     !config.simulationMode && clobClient?.creds
@@ -24,6 +47,10 @@ async function main(): Promise<void> {
           },
         })
       : null;
+
+  if (config.tuiEnabled && !tuiActive) {
+    logger.warn("tui.disabled_non_tty");
+  }
 
   const recordEvent = (
     level: "info" | "warn" | "error",
@@ -40,6 +67,8 @@ async function main(): Promise<void> {
     proxyWalletAddress: config.proxyWalletAddress || null,
     simulationMode: config.simulationMode,
     sqlitePath: config.sqlitePath,
+    orderSizeMode: config.orderSizeMode,
+    fixedOrderSize: config.fixedOrderSize,
     sizeMultiplier: config.sizeMultiplier,
   });
 
@@ -76,8 +105,14 @@ async function main(): Promise<void> {
       outcome: trade.outcome,
     });
 
-    const scaledSize = scaleOrderSize(trade.size, config.sizeMultiplier);
-    if (!scaledSize) {
+    const requestedSize = resolveOrderSize(
+      trade.size,
+      config.orderSizeMode,
+      config.fixedOrderSize,
+      config.sizeMultiplier
+    );
+    const attemptedSize = config.orderSizeMode === "fixed" ? String(config.fixedOrderSize) : trade.size;
+    if (!requestedSize) {
       store.insertFollowerOrder({
         leaderTradeId: observed.record.id,
         followerWallet: config.followerWallet,
@@ -86,14 +121,17 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         limitPrice: trade.price,
-        requestedSize: trade.size,
+        requestedSize: attemptedSize,
         status: "submission_failed",
-        statusReason: "invalid_scaled_size",
+        statusReason: "invalid_requested_size",
       });
       recordEvent("error", "follower_order.invalid_size", {
         leaderTradeId: observed.record.id,
         tradeId: trade.tradeId,
-        size: trade.size,
+        size: attemptedSize,
+        leaderSize: trade.size,
+        orderSizeMode: config.orderSizeMode,
+        fixedOrderSize: config.fixedOrderSize,
         sizeMultiplier: config.sizeMultiplier,
       });
       return;
@@ -108,8 +146,8 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         limitPrice: trade.price,
-        requestedSize: scaledSize,
-        originalSize: scaledSize,
+        requestedSize,
+        originalSize: requestedSize,
         matchedSize: "0",
         status: "simulated",
         statusReason: "simulation_mode",
@@ -120,7 +158,7 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         price: trade.price,
-        size: scaledSize,
+        size: requestedSize,
       });
       return;
     }
@@ -134,7 +172,7 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         limitPrice: trade.price,
-        requestedSize: scaledSize,
+        requestedSize,
         status: "submission_failed",
         statusReason: "user_ws_disconnected",
       });
@@ -144,7 +182,7 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         price: trade.price,
-        size: scaledSize,
+        size: requestedSize,
       });
       return;
     }
@@ -153,7 +191,7 @@ async function main(): Promise<void> {
       assetId: trade.assetId,
       side: trade.side,
       price: trade.price,
-      size: scaledSize,
+      size: requestedSize,
     });
 
     if (!submission.ok) {
@@ -165,7 +203,7 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         limitPrice: trade.price,
-        requestedSize: scaledSize,
+        requestedSize,
         status: "submission_failed",
         statusReason: submission.reason,
       });
@@ -175,7 +213,7 @@ async function main(): Promise<void> {
         assetId: trade.assetId,
         side: trade.side,
         price: trade.price,
-        size: scaledSize,
+        size: requestedSize,
         reason: submission.reason,
       });
       return;
@@ -240,6 +278,8 @@ async function main(): Promise<void> {
       followerFills: store.countFollowerFills(),
       runtimeEvents: store.countRuntimeEvents(),
     });
+    activeTui?.stop();
+    activeTui = null;
     stream.close();
     userOrderStream?.close();
     store.close();
@@ -251,6 +291,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  activeTui?.stop();
+  activeTui = null;
   const logger = createLogger();
   try {
     const config = loadConfig();

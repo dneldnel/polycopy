@@ -2,6 +2,7 @@ import type { OpenOrder, Trade } from "@polymarket/clob-client";
 
 export type TradeSide = "BUY" | "SELL";
 export type SignatureTypeName = "EOA" | "POLY_PROXY" | "POLY_GNOSIS_SAFE";
+export type OrderSizeModeName = "fixed" | "multiplier";
 
 export interface AppConfig {
   leaderWallet: string;
@@ -13,10 +14,13 @@ export interface AppConfig {
   apiPassphrase: string;
   sqlitePath: string;
   simulationMode: boolean;
+  orderSizeMode: OrderSizeModeName;
+  fixedOrderSize: number;
   sizeMultiplier: number;
   clobHttpUrl: string;
   chainId: number;
   signatureType: SignatureTypeName;
+  tuiEnabled: boolean;
 }
 
 export interface ActivityTradePayload {

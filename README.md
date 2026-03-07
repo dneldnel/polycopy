@@ -57,8 +57,11 @@ Optional:
 
 ```bash
 export POLYCOPY_V2_DB_PATH="$PWD/data/polycopy-v2.sqlite"
+export ORDER_SIZE_MODE="fixed"
+export FIXED_ORDER_SIZE="5"
 export SIZE_MULTIPLIER="1"
 export SIMULATION_MODE="true"
+export POLYCOPY_V2_TUI="true"
 
 # Optional explicit API creds
 # export POLYMARKET_API_KEY="..."
@@ -94,6 +97,13 @@ export SIMULATION_MODE="true"
 npm run dev
 ```
 
+Dry run with console TUI:
+
+```bash
+export SIMULATION_MODE="true"
+npm run dev:tui
+```
+
 Live mode:
 
 ```bash
@@ -101,12 +111,15 @@ export SIMULATION_MODE="false"
 npm run dev
 ```
 
+When `POLYCOPY_V2_TUI=true`, the process switches from raw JSON stdout logs to a full-screen terminal dashboard showing websocket status, aggregate counts, recent leader trades, recent follower order activity, recent fills, and recent runtime events. Press `q` or `Ctrl+C` to stop.
+
 ## Behavior
 
 - leader websocket messages are filtered to `LEADER_WALLET_ADDRESS`
 - each unique leader trade is inserted once
 - follower orders are submitted as `GTC` limit orders at the leader trade price only while the authenticated user websocket is connected
-- order size is `leader_size * SIZE_MULTIPLIER`
+- order size is `FIXED_ORDER_SIZE` when `ORDER_SIZE_MODE=fixed`
+- order size is `leader_size * SIZE_MULTIPLIER` when `ORDER_SIZE_MODE=multiplier`
 - websocket connect / disconnect events are written into `runtime_events`
 - authenticated `clob_user` websocket events update `follower_orders` and populate `follower_fills`
 
