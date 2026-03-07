@@ -84,12 +84,46 @@ export interface LeaderStreamDisconnectedContext {
   source: "close" | "heartbeat_timeout";
 }
 
+export type LeaderStreamDiagnosticEvent =
+  | {
+      type: "socket.opened";
+    }
+  | {
+      type: "websocket.subscription_sent";
+    }
+  | {
+      type: "websocket.message_received";
+      preview: string;
+    }
+  | {
+      type: "websocket.message_parse_failed";
+      preview: string;
+    }
+  | {
+      type: "websocket.message_ignored";
+      topic: string | null;
+      messageType: string | null;
+    }
+  | {
+      type: "leader_trade.invalid_payload";
+      keys: string[];
+    }
+  | {
+      type: "leader_trade.wallet_mismatch";
+      proxyWallet: string | null;
+    }
+  | {
+      type: "leader_trade.matched";
+      proxyWallet: string | null;
+    };
+
 export interface StartLeaderStreamOptions {
   leaderWallet: string;
   logger: Logger;
   onTrade: (payload: ActivityTradePayload) => Promise<void> | void;
   onConnected?: (context: LeaderStreamConnectedContext) => Promise<void> | void;
   onDisconnected?: (context: LeaderStreamDisconnectedContext) => Promise<void> | void;
+  onDiagnostic?: (event: LeaderStreamDiagnosticEvent) => void;
 }
 
 export function startLeaderStream(options: StartLeaderStreamOptions): { close(): void } {
@@ -103,6 +137,10 @@ export function startLeaderStream(options: StartLeaderStreamOptions): { close():
   let closedIntentionally = false;
   let disconnectSource: LeaderStreamDisconnectedContext["source"] = "close";
   let awaitingPong = false;
+
+  const emitDiagnostic = (event: LeaderStreamDiagnosticEvent): void => {
+    options.onDiagnostic?.(event);
+  };
 
   const clearReconnectTimer = (): void => {
     if (reconnectTimer) {
@@ -166,6 +204,9 @@ export function startLeaderStream(options: StartLeaderStreamOptions): { close():
       }),
       (error) => {
         if (!error) {
+          emitDiagnostic({
+            type: "websocket.subscription_sent",
+          });
           return;
         }
 
@@ -184,28 +225,56 @@ export function startLeaderStream(options: StartLeaderStreamOptions): { close():
       return;
     }
 
+    emitDiagnostic({
+      type: "websocket.message_received",
+      preview: text.slice(0, 160).replace(/\s+/g, " "),
+    });
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      emitDiagnostic({
+        type: "websocket.message_parse_failed",
+        preview: text.slice(0, 160).replace(/\s+/g, " "),
+      });
       return;
     }
 
     const message = asMessage(parsed);
     if (!message || message.topic !== "activity" || message.type !== "trades") {
+      const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+      emitDiagnostic({
+        type: "websocket.message_ignored",
+        topic: record && typeof record.topic === "string" ? record.topic : null,
+        messageType: record && typeof record.type === "string" ? record.type : null,
+      });
       return;
     }
 
     const payload = asPayload(message.payload);
     if (!payload) {
+      emitDiagnostic({
+        type: "leader_trade.invalid_payload",
+        keys: [],
+      });
       options.logger.warn("leader_trade.invalid_payload");
       return;
     }
 
     const proxyWallet = typeof payload.proxyWallet === "string" ? payload.proxyWallet.toLowerCase() : "";
     if (proxyWallet !== options.leaderWallet) {
+      emitDiagnostic({
+        type: "leader_trade.wallet_mismatch",
+        proxyWallet: proxyWallet || null,
+      });
       return;
     }
+
+    emitDiagnostic({
+      type: "leader_trade.matched",
+      proxyWallet: proxyWallet || null,
+    });
 
     void Promise.resolve(options.onTrade(payload)).catch((error) => {
       options.logger.error("leader_trade.callback_failed", {
@@ -226,6 +295,9 @@ export function startLeaderStream(options: StartLeaderStreamOptions): { close():
         return;
       }
 
+      emitDiagnostic({
+        type: "socket.opened",
+      });
       const currentReconnectAttempt = reconnectAttempt;
       reconnectAttempt = 0;
       awaitingPong = false;

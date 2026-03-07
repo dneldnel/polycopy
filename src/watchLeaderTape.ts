@@ -1,13 +1,45 @@
 import "dotenv/config";
-import { startLeaderStream } from "./leaderStream";
+import { startLeaderStream, type LeaderStreamDiagnosticEvent } from "./leaderStream";
 import { createLogger, errorMessage } from "./logger";
 import { normalizeLeaderTradePayload } from "./normalize";
-import type { NormalizedLeaderTrade } from "./types";
+import type { ActivityTradePayload, NormalizedLeaderTrade } from "./types";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
+interface WatchDiagnostics {
+  socketOpenedAt: number | null;
+  subscriptionSentAt: number | null;
+  lastMessageAt: number | null;
+  rawMessageCount: number;
+  activityTradeCount: number;
+  matchedTradeCount: number;
+  walletMismatchCount: number;
+  invalidPayloadCount: number;
+  parseFailureCount: number;
+  ignoredMessageCount: number;
+  lastOtherWallet: string | null;
+  lastIssue: string | null;
+}
+
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function createWatchDiagnostics(): WatchDiagnostics {
+  return {
+    socketOpenedAt: null,
+    subscriptionSentAt: null,
+    lastMessageAt: null,
+    rawMessageCount: 0,
+    activityTradeCount: 0,
+    matchedTradeCount: 0,
+    walletMismatchCount: 0,
+    invalidPayloadCount: 0,
+    parseFailureCount: 0,
+    ignoredMessageCount: 0,
+    lastOtherWallet: null,
+    lastIssue: null,
+  };
 }
 
 function normalizeAddress(value: string, label: string): string {
@@ -56,14 +88,18 @@ function formatTimestamp(timestamp: number): string {
   }).format(date);
 }
 
+function formatTimestampOrDash(timestamp: number | null): string {
+  return timestamp ? formatTimestamp(timestamp) : "-";
+}
+
 function statusLabel(state: ConnectionState): string {
   if (state === "connected") {
-    return "connected";
+    return "socket connected";
   }
   if (state === "disconnected") {
-    return "disconnected (auto-retrying)";
+    return "socket disconnected (auto-retrying)";
   }
-  return "connecting";
+  return "socket connecting";
 }
 
 function line(label: string, value: string): string {
@@ -75,12 +111,130 @@ function rule(): string {
   return "=".repeat(Math.max(48, Math.min(width, 88)));
 }
 
+function missingRequiredTradeFields(payload: ActivityTradePayload): string[] {
+  const side = asString(payload.side).toUpperCase();
+  const price = payload.price;
+  const size = payload.size;
+  const missing: string[] = [];
+
+  if (!asString(payload.proxyWallet)) {
+    missing.push("proxyWallet");
+  }
+  if (!asString(payload.asset)) {
+    missing.push("asset");
+  }
+  if (side !== "BUY" && side !== "SELL") {
+    missing.push("side");
+  }
+  if (!(typeof price === "number" || asString(price))) {
+    missing.push("price");
+  }
+  if (!(typeof size === "number" || asString(size))) {
+    missing.push("size");
+  }
+
+  return missing;
+}
+
+function applyDiagnostic(diagnostics: WatchDiagnostics, event: LeaderStreamDiagnosticEvent): void {
+  if (event.type === "socket.opened") {
+    diagnostics.socketOpenedAt = Date.now();
+    diagnostics.lastIssue = "socket opened";
+    return;
+  }
+
+  if (event.type === "websocket.subscription_sent") {
+    diagnostics.subscriptionSentAt = Date.now();
+    diagnostics.lastIssue = "subscribe frame sent";
+    return;
+  }
+
+  if (event.type === "websocket.message_received") {
+    diagnostics.rawMessageCount += 1;
+    diagnostics.lastMessageAt = Date.now();
+    return;
+  }
+
+  if (event.type === "websocket.message_parse_failed") {
+    diagnostics.parseFailureCount += 1;
+    diagnostics.lastIssue = `message parse failed: ${event.preview || "(empty)"}`;
+    return;
+  }
+
+  if (event.type === "websocket.message_ignored") {
+    diagnostics.ignoredMessageCount += 1;
+    const descriptor =
+      event.topic && event.messageType
+        ? `${event.topic}/${event.messageType}`
+        : event.topic
+          ? event.topic
+          : "unknown message";
+    diagnostics.lastIssue = `ignored non-activity message: ${descriptor}`;
+    return;
+  }
+
+  if (event.type === "leader_trade.invalid_payload") {
+    diagnostics.activityTradeCount += 1;
+    diagnostics.invalidPayloadCount += 1;
+    diagnostics.lastIssue =
+      event.keys.length > 0
+        ? `activity/trades payload invalid: keys ${event.keys.join(", ")}`
+        : "activity/trades payload invalid";
+    return;
+  }
+
+  if (event.type === "leader_trade.wallet_mismatch") {
+    diagnostics.activityTradeCount += 1;
+    diagnostics.walletMismatchCount += 1;
+    diagnostics.lastOtherWallet = event.proxyWallet;
+    diagnostics.lastIssue = `wallet mismatch: ${compact(event.proxyWallet)}`;
+    return;
+  }
+
+  diagnostics.activityTradeCount += 1;
+  diagnostics.matchedTradeCount += 1;
+  diagnostics.lastIssue = "leader wallet matched";
+}
+
+function diagnosticsSummary(
+  connectionState: ConnectionState,
+  diagnostics: WatchDiagnostics,
+  renderedTradeCount: number
+): string {
+  if (connectionState === "connecting") {
+    return "waiting for websocket open";
+  }
+  if (connectionState === "disconnected") {
+    return diagnostics.lastIssue ?? "socket disconnected";
+  }
+  if (!diagnostics.subscriptionSentAt) {
+    return "socket open; subscribe frame not confirmed sent";
+  }
+  if (diagnostics.rawMessageCount === 0) {
+    return "subscription sent; no websocket messages seen yet";
+  }
+  if (diagnostics.activityTradeCount === 0) {
+    return "messages arrived, but none were activity/trades";
+  }
+  if (diagnostics.matchedTradeCount === 0) {
+    if (diagnostics.walletMismatchCount > 0) {
+      return `activity/trades arrived, but leader wallet did not match (${compact(diagnostics.lastOtherWallet)})`;
+    }
+    return diagnostics.lastIssue ?? "activity/trades arrived, but none matched leader wallet";
+  }
+  if (renderedTradeCount === 0) {
+    return diagnostics.lastIssue ?? "leader wallet matched, but payload normalization failed";
+  }
+  return "leader trades are being received";
+}
+
 function renderScreen(input: {
   leaderWallet: string;
   startedAt: Date;
   connectionState: ConnectionState;
   tradeCount: number;
   latestTrade: NormalizedLeaderTrade | null;
+  diagnostics: WatchDiagnostics;
 }): string {
   const divider = rule();
   const lines = [
@@ -90,13 +244,26 @@ function renderScreen(input: {
     line("Status", statusLabel(input.connectionState)),
     line("Leader", input.leaderWallet),
     line("Started", formatTimestamp(input.startedAt.getTime())),
-    line("Trades", String(input.tradeCount)),
+    line("Trades", `${input.tradeCount} rendered / ${input.diagnostics.matchedTradeCount} matched`),
     line("Scope", "public activity/trades stream"),
+    line("Sub", input.diagnostics.subscriptionSentAt ? "subscribe frame sent" : "pending"),
+    line("LastMsg", formatTimestampOrDash(input.diagnostics.lastMessageAt)),
+    line("RawMsg", String(input.diagnostics.rawMessageCount)),
+    line("TradeMsg", String(input.diagnostics.activityTradeCount)),
+    line("Mismatch", String(input.diagnostics.walletMismatchCount)),
+    line("Invalid", String(input.diagnostics.invalidPayloadCount)),
+    line("Ignored", String(input.diagnostics.ignoredMessageCount)),
+    line("ParseErr", String(input.diagnostics.parseFailureCount)),
+    line("Other", compact(input.diagnostics.lastOtherWallet)),
+    line("Diag", diagnosticsSummary(input.connectionState, input.diagnostics, input.tradeCount)),
     "",
   ];
 
   if (!input.latestTrade) {
     lines.push("Waiting for the next leader trade heard by websocket...");
+    if (input.diagnostics.lastIssue) {
+      lines.push(input.diagnostics.lastIssue);
+    }
     return lines.join("\n");
   }
 
@@ -144,6 +311,7 @@ async function main(): Promise<void> {
   let latestTrade: NormalizedLeaderTrade | null = null;
   let tradeCount = 0;
   let connectionState: ConnectionState = "connecting";
+  const diagnostics = createWatchDiagnostics();
 
   const render = (): void => {
     if (process.stdout.isTTY) {
@@ -157,6 +325,7 @@ async function main(): Promise<void> {
         connectionState,
         tradeCount,
         latestTrade,
+        diagnostics,
       })}\n`
     );
   };
@@ -180,9 +349,16 @@ async function main(): Promise<void> {
   const stream = startLeaderStream({
     leaderWallet,
     logger,
+    onDiagnostic(event) {
+      applyDiagnostic(diagnostics, event);
+      render();
+    },
     onTrade(payload) {
       const trade = normalizeLeaderTradePayload(payload, "websocket");
       if (!trade) {
+        diagnostics.invalidPayloadCount += 1;
+        diagnostics.lastIssue = `matched wallet but payload missing fields: ${missingRequiredTradeFields(payload).join(", ") || "unknown"}`;
+        render();
         return;
       }
 
